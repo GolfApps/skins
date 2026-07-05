@@ -10,7 +10,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 # Define the path to the key file in the same directory
-KEY_FILE = "sak_skins.json"
+KEY_FILE = ""
 SHEET_KEY = "1rdOkZWObTiT_ubGCFy8lG56L-ET7cUtukq2GR-StkjA"
 
 st.set_page_config(page_title="Golf Skins Tracker", layout="wide")
