@@ -10,7 +10,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 # Define the path to the key file in the same directory
-KEY_FILE = ""
+CREDS_DICT = st.secrets["gcp_service_account"]
 SHEET_KEY = "1rdOkZWObTiT_ubGCFy8lG56L-ET7cUtukq2GR-StkjA"
 
 st.set_page_config(page_title="Golf Skins Tracker", layout="wide")
@@ -34,10 +34,10 @@ st.write("Calculate skins, handle payouts, manage group assignments and digital 
 # --- 1. GLOBAL DATABASE SYSTEM (Multi-Device Sync) ---
 # ---------------------------------------------------------
 @st.cache_data(ttl=600)
-def load_master_roster(KEY_FILE, SHEET_KEY):
+def load_master_roster(CREDS_DICT, SHEET_KEY):
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name(KEY_FILE, scope)
+        creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_DICT, scope)
         client = gspread.authorize(creds)
         
         sheet = client.open_by_key(SHEET_KEY)
@@ -92,10 +92,10 @@ def load_master_roster(KEY_FILE, SHEET_KEY):
         return {}
 
 @st.cache_data(ttl=600)
-def get_available_courses(KEY_FILE, SHEET_KEY):
+def get_available_courses(CREDS_DICT, SHEET_KEY):
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name(KEY_FILE, scope)
+        creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_DICT, scope)
         client = gspread.authorize(creds)
         
         sheet = client.open_by_key(SHEET_KEY)
@@ -121,10 +121,10 @@ def get_available_courses(KEY_FILE, SHEET_KEY):
         return []
 
 @st.cache_data(ttl=600)
-def load_course_details(KEY_FILE, SHEET_KEY, selected_course):
+def load_course_details(CREDS_DICT, SHEET_KEY, selected_course):
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name(KEY_FILE, scope)
+        creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_DICT, scope)
         client = gspread.authorize(creds)
         
         sheet = client.open_by_key(SHEET_KEY)
@@ -161,13 +161,13 @@ def load_course_details(KEY_FILE, SHEET_KEY, selected_course):
 
 st.sidebar.header("⚙️ Game setup")
 
-available_courses = get_available_courses(KEY_FILE, SHEET_KEY)
+available_courses = get_available_courses(CREDS_DICT, SHEET_KEY)
 active_holes = []
 
 if available_courses:
     selected_course = st.sidebar.selectbox("Select Course", options=available_courses, key="sidebar_course_select")
 #    st.sidebar.caption(f"Data Connection: **{current_source}**")
-    course_data = load_course_details(KEY_FILE, SHEET_KEY, selected_course)
+    course_data = load_course_details(CREDS_DICT, SHEET_KEY, selected_course)
     max_holes = len(course_data)
     
     if max_holes > 0:
