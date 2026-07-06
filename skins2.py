@@ -173,7 +173,8 @@ if available_courses:
         options=available_courses, 
         key="sidebar_course_select"
     )
-    
+    course_data = load_course_details(SHEET_KEY, selected_course)
+    max_holes = len(course_data) if course_data else 0  #added here
     if max_holes > 0:
         default_hole_idx = min(9, max_holes - 1)
         chosen_num_holes = st.sidebar.selectbox(
