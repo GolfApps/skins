@@ -175,15 +175,11 @@ def get_available_courses(sheet_key):
 active_holes = []
 
 if available_courses:
-    selected_course = st.sidebar.selectbox("Select Course", options=available_courses, key="sidebar_course_select")
-#    st.sidebar.caption(f"Data Connection: **{current_source}**")
-    course_data = load_course_details(CREDS_DICT, SHEET_KEY, selected_course)
-    CREDS_DICT = st.secrets["gcp_service_account"]
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(CREDS_DICT, scope)
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_KEY)
-    max_holes = len(course_data)
+    selected_course = st.sidebar.selectbox(
+        "Select Course", 
+        options=available_courses, 
+        key="sidebar_course_select"
+    )
     
     if max_holes > 0:
         default_hole_idx = min(9, max_holes - 1)
