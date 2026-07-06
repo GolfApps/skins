@@ -34,7 +34,7 @@ st.write("Calculate skins, handle payouts, manage group assignments and digital 
 # --- 1. GLOBAL DATABASE SYSTEM (Multi-Device Sync) ---
 # ---------------------------------------------------------
 @st.cache_data(ttl=600)
-def load_master_roster(CREDS_DICT, SHEET_KEY):
+def load_master_roster(SHEET_KEY):
     try:
         CREDS_DICT = st.secrets["gcp_service_account"]
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -93,7 +93,7 @@ def load_master_roster(CREDS_DICT, SHEET_KEY):
         return {}
 
 @st.cache_data(ttl=600)
-def get_available_courses(CREDS_DICT, SHEET_KEY):
+def get_available_courses(SHEET_KEY):
     try:
         CREDS_DICT = st.secrets["gcp_service_account"]
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -123,7 +123,7 @@ def get_available_courses(CREDS_DICT, SHEET_KEY):
         return []
 
 @st.cache_data(ttl=600)
-def load_course_details(CREDS_DICT, SHEET_KEY, selected_course):
+def load_course_details(SHEET_KEY, selected_course):
     try:
         CREDS_DICT = st.secrets["gcp_service_account"]
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
