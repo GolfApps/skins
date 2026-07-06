@@ -36,11 +36,12 @@ st.write("Calculate skins, handle payouts, manage group assignments and digital 
 @st.cache_data(ttl=600)
 def load_master_roster(CREDS_DICT, SHEET_KEY):
     try:
+        CREDS_DICT = st.secrets["gcp_service_account"]
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_DICT, scope)
         client = gspread.authorize(creds)
-        
         sheet = client.open_by_key(SHEET_KEY)
+
         players_tab = sheet.worksheet('Players')
         raw_data = players_tab.get_all_values()
         if not raw_data:
@@ -94,11 +95,12 @@ def load_master_roster(CREDS_DICT, SHEET_KEY):
 @st.cache_data(ttl=600)
 def get_available_courses(CREDS_DICT, SHEET_KEY):
     try:
+        CREDS_DICT = st.secrets["gcp_service_account"]
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_DICT, scope)
         client = gspread.authorize(creds)
-        
         sheet = client.open_by_key(SHEET_KEY)
+
         course_tab = sheet.worksheet('Course')
         raw_data = course_tab.get_all_values()
         if not raw_data:
@@ -123,11 +125,12 @@ def get_available_courses(CREDS_DICT, SHEET_KEY):
 @st.cache_data(ttl=600)
 def load_course_details(CREDS_DICT, SHEET_KEY, selected_course):
     try:
+        CREDS_DICT = st.secrets["gcp_service_account"]
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_DICT, scope)
         client = gspread.authorize(creds)
-        
         sheet = client.open_by_key(SHEET_KEY)
+
         course_tab = sheet.worksheet('Course')
         raw_data = course_tab.get_all_values()
         if not raw_data:
@@ -284,7 +287,7 @@ st.header("👤 Player Roster & Group Assignments")
 st.write("Select players and assign groups for today's game.")
 
 # 1. Pull the fresh roster dictionary directly from your Google Sheet function
-pulled_roster = load_master_roster(KEY_FILE, SHEET_KEY)
+pulled_roster = load_master_roster(SHEET_KEY)
 
 # 2. Extract options for the player names dropdown
 dropdown_options = sorted(list(pulled_roster.keys()))
@@ -565,8 +568,9 @@ if st.sidebar.button("📤 Export & Backup to Google Drive", use_container_width
         
         try:
             # 1. Establish auth context using existing scope parameters
+            CREDS_DICT = st.secrets["gcp_service_account"]
             scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-            creds = ServiceAccountCredentials.from_json_keyfile_name(KEY_FILE, scope)
+            creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_DICT, scope)
             http_auth = creds.authorize(httplib2.Http())
             
             # 2. Build out the Drive API client
