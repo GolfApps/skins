@@ -164,7 +164,7 @@ def load_course_details(CREDS_DICT, SHEET_KEY, selected_course):
 
 st.sidebar.header("⚙️ Game setup")
 
-available_courses = get_available_courses(SHEET_KEY): 
+available_courses = get_available_courses(SHEET_KEY) 
 active_holes = []
 
 if available_courses:
