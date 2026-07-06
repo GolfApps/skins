@@ -164,14 +164,7 @@ def load_course_details(CREDS_DICT, SHEET_KEY, selected_course):
 
 st.sidebar.header("⚙️ Game setup")
 
-@st.cache_data(ttl=600)
-def get_available_courses(sheet_key): 
-    creds_dict = st.secrets["gcp_service_account"]
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key(sheet_key)
-    
+available_courses = get_available_courses(sheet_key): 
 active_holes = []
 
 if available_courses:
