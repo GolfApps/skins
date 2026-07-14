@@ -9,12 +9,13 @@ import os
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# Hide the Streamlit menu and footer
+st.set_page_config(page_title="My App", layout="centered")
+
+# Hide ONLY the hamburger menu and the footer (keeping the header/sidebar arrow intact)
 hide_style = """
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    header {visibility: hidden;}
     </style>
 """
 st.markdown(hide_style, unsafe_allow_html=True)
