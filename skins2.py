@@ -9,6 +9,16 @@ import os
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
+# Hide the Streamlit menu and footer
+hide_style = """
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    </style>
+"""
+st.markdown(hide_style, unsafe_allow_html=True)
+
 # Define the path to the key file in the same directory
 CREDS_DICT = st.secrets["gcp_service_account"]
 SHEET_KEY = "1rdOkZWObTiT_ubGCFy8lG56L-ET7cUtukq2GR-StkjA"
