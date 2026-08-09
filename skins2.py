@@ -1,17 +1,21 @@
 # Lake Jovita Happy Hour Skins game scoring app
-# July 5, 2026
+# August 2026
 
-import streamlit as st
+import os
+import datetime
 import pandas as pd
 import numpy as np
 import math
-import os
+import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaInMemoryUpload
 
-st.set_page_config(page_title="My App", layout="centered")
+# Standardized page configuration (Must be the first Streamlit command)
+st.set_page_config(page_title="Golf Skins Tracker", layout="wide")
 
-# Hide ONLY the hamburger menu and the footer (keeping the header/sidebar arrow intact)
+# Hide ONLY the hamburger menu and the footer
 hide_style = """
     <style>
     #MainMenu {visibility: hidden;}
@@ -20,23 +24,32 @@ hide_style = """
 """
 st.markdown(hide_style, unsafe_allow_html=True)
 
-# Define the path to the key file in the same directory
+# Define credentials and Google Sheet keys
 CREDS_DICT = st.secrets["gcp_service_account"]
 SHEET_KEY = "1rdOkZWObTiT_ubGCFy8lG56L-ET7cUtukq2GR-StkjA"
-
-st.set_page_config(page_title="Golf Skins Tracker", layout="wide")
 
 # --- Configuration Constants ---
 MAX_GROUPS = 4
 DB_FILE = "skins_database.csv"
 ROSTER_FILE = "master_roster.csv"
 
+# --- SESSION STATE PRESERVATION INIT ---
+if "active_scorecard_group" not in st.session_state:
+    st.session_state.active_scorecard_group = 1
+
+if "num_players" not in st.session_state:
+    st.session_state.num_players = 8
+
+if "buy_in_per_player" not in st.session_state:
+    st.session_state.buy_in_per_player = 10
+
+if "carry_over" not in st.session_state:
+    st.session_state.carry_over = True
+
 # Ensure the local master roster file exists
 if not os.path.exists(ROSTER_FILE):
-    # Initialize with default headers if it doesn't exist yet
     df_init = pd.DataFrame(columns=["Name", "Tee", "PH"])
     df_init.to_csv(ROSTER_FILE, index=False)
-
 
 st.title("⛳ LJ Happy Hour Skins Game Tracker")
 st.write("Calculate skins, handle payouts, manage group assignments and digital scorecard.")
@@ -47,7 +60,6 @@ st.write("Calculate skins, handle payouts, manage group assignments and digital 
 @st.cache_data(ttl=600)
 def load_master_roster(SHEET_KEY):
     try:
-        CREDS_DICT = st.secrets["gcp_service_account"]
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(CREDS_DICT, scope)
         client = gspread.authorize(creds)
@@ -78,10 +90,7 @@ def load_master_roster(SHEET_KEY):
             if len(row) <= max(nm_idx, tee_idx, hc_idx):
                 continue
             
-            # 1. Extract the name string from the correct column index
             full_name = str(row[nm_idx]).strip()
-            
-            # 2. Safety check against blank rows using the extracted name
             if not full_name:
                 continue
             
@@ -91,8 +100,6 @@ def load_master_roster(SHEET_KEY):
                     group_val = row[idx].strip()
                     break
             
-            # 3. Save to roster using full_name as the key
-            # NOTE: We keep the internal key as "Handicap" so the main application loop reads it smoothly
             roster[full_name] = {
                 "Tee": row[tee_idx].strip() if row[tee_idx].strip() else "Green",
                 "Handicap": row[hc_idx].strip() if row[hc_idx].strip() else "10",
@@ -106,7 +113,6 @@ def load_master_roster(SHEET_KEY):
 @st.cache_data(ttl=600)
 def get_available_courses(SHEET_KEY):
     try:
-        CREDS_DICT = st.secrets["gcp_service_account"]
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(CREDS_DICT, scope)
         client = gspread.authorize(creds)
@@ -136,7 +142,6 @@ def get_available_courses(SHEET_KEY):
 @st.cache_data(ttl=600)
 def load_course_details(SHEET_KEY, selected_course):
     try:
-        CREDS_DICT = st.secrets["gcp_service_account"]
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(CREDS_DICT, scope)
         client = gspread.authorize(creds)
@@ -185,7 +190,7 @@ if available_courses:
         key="sidebar_course_select"
     )
     course_data = load_course_details(SHEET_KEY, selected_course)
-    max_holes = len(course_data) if course_data else 0  #added here
+    max_holes = len(course_data) if course_data else 0
     if max_holes > 0:
         default_hole_idx = min(9, max_holes - 1)
         chosen_num_holes = st.sidebar.selectbox(
@@ -200,7 +205,6 @@ if available_courses:
 else:
     st.sidebar.warning("No courses returned. Please check your Google Sheets connection.")
 
-# Sync dynamic course parameters directly into running session state variables
 # Sync dynamic course parameters directly into running session state variables
 if len(active_holes) > 0 and (
     st.session_state.get("last_course") != selected_course or 
@@ -226,16 +230,29 @@ if 'course_df' not in st.session_state:
 num_holes = len(st.session_state.course_df.columns)
 
 st.sidebar.markdown("---")
-# st.sidebar.header("⚙️ Game Settings")
-num_players = st.sidebar.number_input("Total Number of Players", min_value=1, max_value=24, value=8, step=1)
-carry_over = st.sidebar.checkbox("Carry over tied skins?", value=True)
+num_players = st.sidebar.number_input(
+    "Total Number of Players", 
+    min_value=1, 
+    max_value=24, 
+    step=1, 
+    key="num_players"
+)
+carry_over = st.sidebar.checkbox(
+    "Carry over tied skins?", 
+    key="carry_over"
+)
 
 st.sidebar.markdown("---")
 st.sidebar.header("💰 Purse Settings")
-buy_in_per_player = st.sidebar.number_input("Buy-in Amount per Player ($)", min_value=0, value=10, step=5)
+buy_in_per_player = st.sidebar.number_input(
+    "Buy-in Amount per Player ($)", 
+    min_value=0, 
+    step=5, 
+    key="buy_in_per_player"
+)
 
 total_purse = num_players * buy_in_per_player
-skin_value_per_hole = total_purse / num_holes
+skin_value_per_hole = (total_purse / num_holes) if num_holes > 0 else 0
 
 st.sidebar.metric("Total Purse", f"${total_purse}")
 st.sidebar.metric("Skin payout / Hole", f"${skin_value_per_hole:,.2f}")
@@ -254,7 +271,7 @@ def initialize_flat_file():
             "Tee": "Green",
             "Handicap": 10
         }
-        for h in range(18): # Pre-allocate all 18 standard tracking columns
+        for h in range(18):
             row[f"Hole {h+1}"] = 0
         df_rows.append(row)
     pd.DataFrame(df_rows).to_csv(DB_FILE, index=False)
@@ -272,9 +289,6 @@ for h in range(18):
 
 active_players_df = master_db.iloc[:num_players].copy()
 
-if 'active_scorecard_group' not in st.session_state:
-    st.session_state.active_scorecard_group = 1
-
 # ---------------------------------------------------------
 # --- INTERACTIVE MODULES & RENDERING ---
 # ---------------------------------------------------------
@@ -283,8 +297,6 @@ if 'active_scorecard_group' not in st.session_state:
 st.header("🏌️‍♂️Course & Tee Settings")
 col_c1, col_c2 = st.columns([3, 1])
 
-# available_tees = ["Gold", "Blue", "White", "White/Green", "Green", "Green/Red", "Red"]
-
 with col_c1:
     st.write("**Configure Hole Properties**")
     edited_course = st.data_editor(st.session_state.course_df, use_container_width=True, key="course_editor")
@@ -292,41 +304,33 @@ with col_c1:
     par_values = edited_course.loc["Par"].tolist()
     hole_hdcp_values = edited_course.loc["Hole Handicap"].tolist()
 
-
 # ---------------------------------------------------------
 # --- 2. PLAYER ROSTER & HANDICAP SETTINGS ------------
 # ---------------------------------------------------------
 st.header("👤 Player Roster & Group Assignments")
 st.write("Select players and assign groups for today's game.")
 
-# 1. Pull the fresh roster dictionary directly from your Google Sheet function
 pulled_roster = load_master_roster(SHEET_KEY)
-
-# 2. Extract options for the player names dropdown
 dropdown_options = sorted(list(pulled_roster.keys()))
 
-# 3. DYNAMIC TEE HARVESTER: Look through the sheet data to find ALL tee options (including "White/Green", etc.)
 sheet_tees = set()
 for player_name, info in pulled_roster.items():
     if info.get("Tee"):
         sheet_tees.add(info["Tee"].strip())
 
-# Combine sheet tees with baseline defaults to ensure the dropdown is completely covered
 baseline_tees = ["Blue", "White", "Green", "Gold", "Red"]
 dynamic_tee_options = sorted(list(sheet_tees.union(baseline_tees)))
 
-# 4. Configure the table layout with the newly expanded dynamic tee choices
 roster_config = {
     "Player": st.column_config.SelectboxColumn("Player Name", options=dropdown_options, required=True),
     "Group": st.column_config.SelectboxColumn("Assigned Group", options=[f"Group {g+1}" for g in range(4)], required=True),
-    "Tee": st.column_config.SelectboxColumn("Tee Box", options=dynamic_tee_options, required=True), # <-- Now tracks combo tees perfectly!
+    "Tee": st.column_config.SelectboxColumn("Tee Box", options=dynamic_tee_options, required=True),
     "Handicap": st.column_config.NumberColumn("Handicap Index / PH", min_value=0, max_value=54, step=1, required=True)
 }
 
 roster_view_cols = ["Player", "Group", "Tee", "Handicap"]
 roster_slice = active_players_df[roster_view_cols]
 
-# 5. Display the interactive selection matrix
 edited_roster_matrix = st.data_editor(
     roster_slice,
     use_container_width=True,
@@ -335,7 +339,6 @@ edited_roster_matrix = st.data_editor(
     key="global_roster_editor" 
 )
 
-# 6. Smart Update Engine
 if not edited_roster_matrix.equals(roster_slice):
     for i, row in edited_roster_matrix.iterrows():
         old_player = master_db.at[i, "Player"]
@@ -359,17 +362,17 @@ if not edited_roster_matrix.equals(roster_slice):
 st.sidebar.markdown("---")
 st.sidebar.header("📱 Active Scorecard Form Menu")
 for g in range(MAX_GROUPS):
-    if st.sidebar.button(f"📋 Group {g+1} Scorecard", use_container_width=True):
+    if st.sidebar.button(f"📋 Group {g+1} Scorecard", use_container_width=True, key=f"btn_nav_group_{g+1}"):
         st.session_state.active_scorecard_group = g + 1
- 
+        st.rerun()
+
 # ---------------------------------------------------------
-# --- 3. DYNAMIC SCORE ENTRY FORM (CRASH-PROOFED) ---
+# --- 3. DYNAMIC SCORE ENTRY FORM ---
 # ---------------------------------------------------------
 
 active_g = st.session_state.get("active_scorecard_group", 1)
 st.header(f"📝 Group {active_g} Scorecard")
 
-# Data Safeguard: Ensure 'Group' exists, string-cast it, and strip accidental whitespace
 if "Group" in active_players_df.columns:
     active_players_df["Group"] = active_players_df["Group"].astype(str).str.strip()
     group_mask = active_players_df["Group"] == f"Group {active_g}"
@@ -377,7 +380,6 @@ if "Group" in active_players_df.columns:
 else:
     active_group_df = pd.DataFrame()
 
-# Safe arrays extraction with global defaults to prevent row structural mismatches
 try:
     par_values = st.session_state.course_df.loc["Par"].astype(int).tolist()
     hole_hdcp_values = st.session_state.course_df.loc["Hole Handicap"].astype(int).tolist()
@@ -395,7 +397,6 @@ else:
         selected_hole = st.selectbox("Choose Hole to Update:", hole_options)
         hole_idx = hole_options.index(selected_hole)
         
-        # Boundary proofing indexes
         current_par = par_values[hole_idx] if hole_idx < len(par_values) else 4
         current_hdcp = hole_hdcp_values[hole_idx] if hole_idx < len(hole_hdcp_values) else 10
         
@@ -409,7 +410,6 @@ else:
                 p_hdcp = row.get("Handicap", 10)
                 p_tee = row.get("Tee", "Green")
                 
-                # CRASH GUARD: Seamlessly catch blank, NaN, or string values from data feeds
                 raw_score = row.get(selected_hole, 0)
                 try:
                     if pd.isna(raw_score) or str(raw_score).strip() in ["", "0"]:
@@ -566,40 +566,25 @@ with tabs[2]:
 st.sidebar.markdown("---")
 st.sidebar.header("🛠️ Admin & Data Tools")
 
-# Action 1: Export Data to Google Drive Engine
-import datetime
-# Generates string format like: 05Jul2026
 date_str = datetime.datetime.now().strftime("%d%b%Y")
 formatted_filename = f"golf_skins_backup_{date_str}.csv"
 
 if st.sidebar.button("📤 Export & Backup to Google Drive", use_container_width=True, key="admin_drive_upload_btn"):
     with st.spinner("Uploading backup to Google Drive..."):
-        # Import standard google client handlers inside the button trigger
-        from googleapiclient.discovery import build
-        from googleapiclient.http import MediaInMemoryUpload
-        import httplib2
-        
         try:
-            # 1. Establish auth context using existing scope parameters
             CREDS_DICT = st.secrets["gcp_service_account"]
-            scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-            creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_DICT, scope)
-            http_auth = creds.authorize(httplib2.Http())
+            scope = ["https://www.googleapis.com/auth/drive"]
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(CREDS_DICT, scope)
             
-            # 2. Build out the Drive API client
-            service = build('drive', 'v3', http=http_auth)
-            
-            # 3. Transform master dataframe into memory stream bytes
+            service = build('drive', 'v3', credentials=creds)
             csv_bytes = master_db.to_csv(index=False).encode('utf-8')
             
-            # 4. Finalize payload metadata details
             file_metadata = {
                 'name': formatted_filename,
                 'mimeType': 'text/csv'
             }
             media = MediaInMemoryUpload(csv_bytes, mimetype='text/csv', resumable=True)
             
-            # 5. Commit upload execution to the service account drive directory
             drive_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
             
             if drive_file.get('id'):
@@ -607,7 +592,6 @@ if st.sidebar.button("📤 Export & Backup to Google Drive", use_container_width
         except Exception as e:
             st.sidebar.error(f"❌ Drive upload failed: {e}")
 
-# Action 2: Heavy Reset Data Engine
 if st.sidebar.button("🚨 Reset Database File", use_container_width=True, type="primary", key="admin_factory_reset_btn"):
     initialize_flat_file()
     st.sidebar.success("Database cleanly wiped back to default blanks!")
