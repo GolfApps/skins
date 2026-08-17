@@ -27,6 +27,7 @@ st.markdown(hide_style, unsafe_allow_html=True)
 # Define credentials and Google Sheet keys
 CREDS_DICT = st.secrets["gcp_service_account"]
 SHEET_KEY = "1rdOkZWObTiT_ubGCFy8lG56L-ET7cUtukq2GR-StkjA"
+DRIVE_FOLDER_ID = "https://drive.google.com/drive/folders/1wUDJ4WqSBX4onE7sRkCqW4U5GpPVClm0"
 
 # --- Configuration Constants ---
 MAX_GROUPS = 4
@@ -566,6 +567,7 @@ with tabs[2]:
 st.sidebar.markdown("---")
 st.sidebar.header("🛠️ Admin & Data Tools")
 
+# Action 1: Export Data to Google Drive Engine
 date_str = datetime.datetime.now().strftime("%d%b%Y")
 formatted_filename = f"golf_skins_backup_{date_str}.csv"
 
@@ -579,9 +581,11 @@ if st.sidebar.button("📤 Export & Backup to Google Drive", use_container_width
             service = build('drive', 'v3', credentials=creds)
             csv_bytes = master_db.to_csv(index=False).encode('utf-8')
             
+            # Explicitly route upload into your shared folder
             file_metadata = {
                 'name': formatted_filename,
-                'mimeType': 'text/csv'
+                'mimeType': 'text/csv',
+                'parents': [DRIVE_FOLDER_ID]
             }
             media = MediaInMemoryUpload(csv_bytes, mimetype='text/csv', resumable=True)
             
