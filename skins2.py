@@ -567,41 +567,31 @@ with tabs[2]:
 st.sidebar.markdown("---")
 st.sidebar.header("🛠️ Admin & Data Tools")
 
-DRIVE_FOLDER_ID = "1wUDJ4WqSBX4onE7sRkCqW4U5GpPVClm0"
-
-# Action 1: Export Data to Google Drive Engine
-date_str = datetime.datetime.now().strftime("%d%b%Y")
-formatted_filename = f"golf_skins_backup_{date_str}.csv"
-
-if st.sidebar.button("📤 Export & Backup to Google Drive", use_container_width=True, key="admin_drive_upload_btn"):
-    with st.spinner("Uploading backup to Google Drive..."):
+# Action 1: Export & Backup to Google Sheet Tab
+if st.sidebar.button("📤 Export & Backup to Google Sheet", use_container_width=True, key="admin_drive_upload_btn"):
+    with st.spinner("Saving backup to Google Sheet..."):
         try:
-            CREDS_DICT = st.secrets["gcp_service_account"]
-            scope = ["https://www.googleapis.com/auth/drive"]
+            scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
             creds = ServiceAccountCredentials.from_json_keyfile_dict(CREDS_DICT, scope)
+            client = gspread.authorize(creds)
+            sheet = client.open_by_key(SHEET_KEY)
+
+            date_tab_name = f"Backup_{datetime.datetime.now().strftime('%d%b%Y')}"
             
-            service = build('drive', 'v3', credentials=creds)
-            csv_bytes = master_db.to_csv(index=False).encode('utf-8')
-            
-            file_metadata = {
-                'name': formatted_filename,
-                'mimeType': 'text/csv',
-                'parents': [DRIVE_FOLDER_ID]
-            }
-            media = MediaInMemoryUpload(csv_bytes, mimetype='text/csv', resumable=True)
-            
-            # supportsAllDrives=True bypasses root storage routing
-            drive_file = service.files().create(
-                body=file_metadata, 
-                media_body=media, 
-                fields='id',
-                supportsAllDrives=True
-            ).execute()
-            
-            if drive_file.get('id'):
-                st.sidebar.success(f"✅ Successfully backed up to Drive!\n\n📂 **File Name:** `{formatted_filename}`")
+            # Create tab if it doesn't exist, or select it if it does
+            try:
+                backup_ws = sheet.worksheet(date_tab_name)
+                backup_ws.clear()
+            except gspread.exceptions.WorksheetNotFound:
+                backup_ws = sheet.add_worksheet(title=date_tab_name, rows="100", cols="30")
+
+            # Push dataframe rows directly into the backup worksheet
+            df_export = master_db.fillna("")
+            backup_ws.update([df_export.columns.values.tolist()] + df_export.values.tolist())
+
+            st.sidebar.success(f"✅ Successfully backed up to Sheet tab:\n\n📂 **Tab Name:** `{date_tab_name}`")
         except Exception as e:
-            st.sidebar.error(f"❌ Drive upload failed: {e}")
+            st.sidebar.error(f"❌ Sheet backup failed: {e}")
 
 if st.sidebar.button("🚨 Reset Database File", use_container_width=True, type="primary", key="admin_factory_reset_btn"):
     initialize_flat_file()
