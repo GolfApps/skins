@@ -567,6 +567,8 @@ with tabs[2]:
 st.sidebar.markdown("---")
 st.sidebar.header("🛠️ Admin & Data Tools")
 
+DRIVE_FOLDER_ID = "1wUDJ4WqSBX4onE7sRkCqW4U5GpPVClm0"
+
 # Action 1: Export Data to Google Drive Engine
 date_str = datetime.datetime.now().strftime("%d%b%Y")
 formatted_filename = f"golf_skins_backup_{date_str}.csv"
@@ -581,7 +583,6 @@ if st.sidebar.button("📤 Export & Backup to Google Drive", use_container_width
             service = build('drive', 'v3', credentials=creds)
             csv_bytes = master_db.to_csv(index=False).encode('utf-8')
             
-            # Explicitly route upload into your shared folder
             file_metadata = {
                 'name': formatted_filename,
                 'mimeType': 'text/csv',
@@ -589,7 +590,13 @@ if st.sidebar.button("📤 Export & Backup to Google Drive", use_container_width
             }
             media = MediaInMemoryUpload(csv_bytes, mimetype='text/csv', resumable=True)
             
-            drive_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+            # supportsAllDrives=True bypasses root storage routing
+            drive_file = service.files().create(
+                body=file_metadata, 
+                media_body=media, 
+                fields='id',
+                supportsAllDrives=True
+            ).execute()
             
             if drive_file.get('id'):
                 st.sidebar.success(f"✅ Successfully backed up to Drive!\n\n📂 **File Name:** `{formatted_filename}`")
