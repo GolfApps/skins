@@ -27,7 +27,7 @@ st.markdown(hide_style, unsafe_allow_html=True)
 # Define credentials and Google Sheet keys
 CREDS_DICT = st.secrets["gcp_service_account"]
 SHEET_KEY = "1rdOkZWObTiT_ubGCFy8lG56L-ET7cUtukq2GR-StkjA"
-DRIVE_FOLDER_ID = "https://drive.google.com/drive/folders/1wUDJ4WqSBX4onE7sRkCqW4U5GpPVClm0"
+DRIVE_FOLDER_ID = "1wUDJ4WqSBX4onE7sRkCqW4U5GpPVClm0"
 
 # --- Configuration Constants ---
 MAX_GROUPS = 4
