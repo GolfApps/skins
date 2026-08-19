@@ -331,7 +331,7 @@ st.sidebar.metric("Skin payout / Hole", f"${skin_value_per_hole:,.2f}")
 
 # --- SAVE & UPDATE SETTINGS BUTTONS ---
 st.sidebar.markdown("---")
-st.sidebar.header("💾 Settings Persistence")
+st.sidebar.header("💾 Save Game Settings")
 col_s1, col_s2 = st.sidebar.columns(2)
 
 with col_s1:
