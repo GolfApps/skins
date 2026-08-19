@@ -34,10 +34,68 @@ MAX_GROUPS = 4
 DB_FILE = "skins_database.csv"
 ROSTER_FILE = "master_roster.csv"
 
-# --- SESSION STATE PRESERVATION INIT ---
-if "active_scorecard_group" not in st.session_state:
-    st.session_state.active_scorecard_group = 1
+# ---------------------------------------------------------
+# --- GOOGLE SHEETS SETTINGS PERSISTENCE ENGINE -----------
+# ---------------------------------------------------------
 
+@st.cache_data(ttl=600)
+def load_game_settings(SHEET_KEY):
+    """Loads saved game setup parameters from the 'Settings' tab in Google Sheets."""
+    try:
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(CREDS_DICT, scope)
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SHEET_KEY)
+        
+        try:
+            settings_ws = sheet.worksheet('Settings')
+            raw = settings_ws.get_all_records()
+            return {str(row['Setting']): row['Value'] for row in raw if 'Setting' in row and 'Value' in row}
+        except Exception:
+            return {}
+    except Exception:
+        return {}
+
+def save_game_settings(SHEET_KEY, settings_dict):
+    """Saves game setup parameters into the 'Settings' tab in Google Sheets."""
+    try:
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(CREDS_DICT, scope)
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SHEET_KEY)
+
+        try:
+            settings_ws = sheet.worksheet('Settings')
+            settings_ws.clear()
+        except gspread.exceptions.WorksheetNotFound:
+            settings_ws = sheet.add_worksheet(title='Settings', rows="20", cols="2")
+
+        rows = [["Setting", "Value"]]
+        for k, v in settings_dict.items():
+            rows.append([str(k), str(v)])
+            
+        settings_ws.update(rows)
+        return True, "Settings saved to Google Sheets successfully!"
+    except Exception as e:
+        return False, f"Failed to save settings: {e}"
+
+# Load settings into session state on app init
+if "settings_loaded" not in st.session_state:
+    saved_settings = load_game_settings(SHEET_KEY)
+    if saved_settings:
+        if "num_players" in saved_settings:
+            st.session_state.num_players = int(saved_settings["num_players"])
+        if "buy_in_per_player" in saved_settings:
+            st.session_state.buy_in_per_player = int(saved_settings["buy_in_per_player"])
+        if "carry_over" in saved_settings:
+            st.session_state.carry_over = str(saved_settings["carry_over"]).lower() == 'true'
+        if "saved_course" in saved_settings:
+            st.session_state.saved_course = str(saved_settings["saved_course"])
+        if "saved_num_holes" in saved_settings:
+            st.session_state.saved_num_holes = int(saved_settings["saved_num_holes"])
+    st.session_state.settings_loaded = True
+
+# Defaults if not present in session state
 if "num_players" not in st.session_state:
     st.session_state.num_players = 8
 
@@ -185,18 +243,30 @@ available_courses = get_available_courses(SHEET_KEY)
 active_holes = []
 
 if available_courses:
+    # Set default course index from saved settings if available
+    course_default_idx = 0
+    if "saved_course" in st.session_state and st.session_state.saved_course in available_courses:
+        course_default_idx = available_courses.index(st.session_state.saved_course)
+
     selected_course = st.sidebar.selectbox(
         "Select Course", 
-        options=available_courses, 
+        options=available_courses,
+        index=course_default_idx,
         key="sidebar_course_select"
     )
     course_data = load_course_details(SHEET_KEY, selected_course)
     max_holes = len(course_data) if course_data else 0
     if max_holes > 0:
+        holes_options = list(range(1, max_holes + 1))
+        
+        # Set default hole index from saved settings if available
         default_hole_idx = min(9, max_holes - 1)
+        if "saved_num_holes" in st.session_state and st.session_state.saved_num_holes in holes_options:
+            default_hole_idx = holes_options.index(st.session_state.saved_num_holes)
+
         chosen_num_holes = st.sidebar.selectbox(
             "Number of Holes",
-            options=list(range(1, max_holes + 1)),
+            options=holes_options,
             index=default_hole_idx,
             key="sidebar_holes_select"
         )
@@ -205,6 +275,7 @@ if available_courses:
         st.sidebar.error(f"Connected to 'Course' tab, but found 0 holes listed for '{selected_course}'.")
 else:
     st.sidebar.warning("No courses returned. Please check your Google Sheets connection.")
+    chosen_num_holes = 9
 
 # Sync dynamic course parameters directly into running session state variables
 if len(active_holes) > 0 and (
@@ -257,6 +328,34 @@ skin_value_per_hole = (total_purse / num_holes) if num_holes > 0 else 0
 
 st.sidebar.metric("Total Purse", f"${total_purse}")
 st.sidebar.metric("Skin payout / Hole", f"${skin_value_per_hole:,.2f}")
+
+# --- SAVE & UPDATE SETTINGS BUTTONS ---
+st.sidebar.markdown("---")
+st.sidebar.header("💾 Settings Persistence")
+col_s1, col_s2 = st.sidebar.columns(2)
+
+with col_s1:
+    if st.button("💾 Save Settings", use_container_width=True, key="save_settings_btn"):
+        settings_payload = {
+            "num_players": st.session_state.num_players,
+            "saved_course": selected_course if 'selected_course' in locals() else "",
+            "saved_num_holes": chosen_num_holes if 'chosen_num_holes' in locals() else 18,
+            "buy_in_per_player": st.session_state.buy_in_per_player,
+            "carry_over": st.session_state.carry_over
+        }
+        success, msg = save_game_settings(SHEET_KEY, settings_payload)
+        if success:
+            st.sidebar.success("Saved!")
+        else:
+            st.sidebar.error(msg)
+
+with col_s2:
+    if st.button("🔄 Update Settings", use_container_width=True, key="update_settings_btn"):
+        st.cache_data.clear()
+        if "settings_loaded" in st.session_state:
+            del st.session_state["settings_loaded"]
+        st.sidebar.success("Updated!")
+        st.rerun()
 
 # ---------------------------------------------------------
 # --- 3. FLAT FILE DATABASE INITIALIZATION ---
@@ -359,27 +458,31 @@ if not edited_roster_matrix.equals(roster_slice):
     master_db.to_csv(DB_FILE, index=False)
     st.rerun()
 
-# --- Group Scorecard Navigation ---
-st.sidebar.markdown("---")
-st.sidebar.header("📱 Active Scorecard Form Menu")
-for g in range(MAX_GROUPS):
-    if st.sidebar.button(f"📋 Group {g+1} Scorecard", use_container_width=True, key=f"btn_nav_group_{g+1}"):
-        st.session_state.active_scorecard_group = g + 1
-        st.rerun()
-
 # ---------------------------------------------------------
 # --- 3. DYNAMIC SCORE ENTRY FORM ---
 # ---------------------------------------------------------
 
-active_g = st.session_state.get("active_scorecard_group", 1)
-st.header(f"📝 Group {active_g} Scorecard")
+st.header("📝 Player Scorecard & Entry")
 
-if "Group" in active_players_df.columns:
-    active_players_df["Group"] = active_players_df["Group"].astype(str).str.strip()
-    group_mask = active_players_df["Group"] == f"Group {active_g}"
-    active_group_df = active_players_df[group_mask]
+# Group Selector placed directly ABOVE the Hole Selector
+group_options = ["All Players"] + [f"Group {g+1}" for g in range(MAX_GROUPS)]
+selected_group = st.selectbox(
+    "Select Group Filter:",
+    options=group_options,
+    index=0,
+    key="scorecard_group_select"
+)
+
+# Filter active players dataframe according to selection
+if selected_group == "All Players":
+    active_group_df = active_players_df.copy()
 else:
-    active_group_df = pd.DataFrame()
+    if "Group" in active_players_df.columns:
+        active_players_df["Group"] = active_players_df["Group"].astype(str).str.strip()
+        group_mask = active_players_df["Group"] == selected_group
+        active_group_df = active_players_df[group_mask]
+    else:
+        active_group_df = pd.DataFrame()
 
 try:
     par_values = st.session_state.course_df.loc["Par"].astype(int).tolist()
@@ -389,9 +492,8 @@ except Exception:
     hole_hdcp_values = [10] * 18
 
 if active_group_df.empty:
-    st.warning(f"No players are currently assigned to Group {active_g}. Change player assignments to 'Group {active_g}' in Section 2 above to log scores.")
+    st.warning(f"No players are currently assigned to {selected_group}. Change player assignments in Section 2 above.")
 else:
-    st.subheader("Select Hole & Input Scores")
     hole_options = [f"Hole {i+1}" for i in range(len(st.session_state.course_df.columns))]
     
     if hole_options:
@@ -404,7 +506,7 @@ else:
         st.caption(f"ℹ️ **{selected_hole} Details** — Par: {current_par} | Handicap Rating: {current_hdcp}")
         st.markdown("---")
         
-        with st.form(key=f"score_form_group_{active_g}", clear_on_submit=False):
+        with st.form(key=f"score_form_{selected_group.replace(' ', '_')}", clear_on_submit=False):
             input_scores = {}
             for idx, row in active_group_df.iterrows():
                 p_name = row["Player"]
@@ -434,15 +536,16 @@ else:
 
         if submit_button:
             for idx, row in master_db.iterrows():
-                if str(row["Group"]).strip() == f"Group {active_g}" and row["Player"] in input_scores:
-                    master_db.at[idx, selected_hole] = input_scores[row["Player"]]
+                p_name = row["Player"]
+                if p_name in input_scores:
+                    master_db.at[idx, selected_hole] = input_scores[p_name]
             master_db.to_csv(DB_FILE, index=False)
             st.success(f"Scores saved successfully for {selected_hole}!")
             st.rerun()
     else:
         st.error("No active holes found in your course configurations matrix.")
 
-with st.expander(f"👀 View Group {active_g} Live Running Scorecard Summary"):
+with st.expander(f"👀 View {selected_group} Live Running Scorecard Summary"):
     if not active_group_df.empty:
         st.dataframe(active_group_df, use_container_width=True, hide_index=True)
 
