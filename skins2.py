@@ -35,7 +35,7 @@ DB_FILE = "skins_database.csv"
 ROSTER_FILE = "master_roster.csv"
 
 # ---------------------------------------------------------
-# --- GOOGLE SHEETS SETTINGS PERSISTENCE ENGINE -----------
+# --- GOOGLE SHEETS SETTINGS & SCORECARD PERSISTENCE ------
 # ---------------------------------------------------------
 
 @st.cache_data(ttl=600)
@@ -78,6 +78,108 @@ def save_game_settings(SHEET_KEY, settings_dict):
         return True, "Settings saved to Google Sheets successfully!"
     except Exception as e:
         return False, f"Failed to save settings: {e}"
+
+def create_scorecard_tab(SHEET_KEY, active_players_df):
+    """Creates a 'Scorecard-ddmmmyyyy' tab with player list and assigned groups."""
+    try:
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(CREDS_DICT, scope)
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SHEET_KEY)
+
+        date_str = datetime.datetime.now().strftime("%d%b%Y")
+        tab_name = f"Scorecard-{date_str}"
+
+        try:
+            ws = sheet.worksheet(tab_name)
+            ws.clear()
+        except gspread.exceptions.WorksheetNotFound:
+            ws = sheet.add_worksheet(title=tab_name, rows="50", cols="10")
+
+        cols_to_export = ["Player", "Group", "Tee", "Handicap"]
+        df_export = active_players_df[cols_to_export].fillna("")
+        ws.update([df_export.columns.values.tolist()] + df_export.values.tolist())
+        return True, tab_name
+    except Exception as e:
+        return False, str(e)
+
+def save_group_scores_to_sheet(SHEET_KEY, active_players_df):
+    """Saves running scorecard summary per group to tab 'score-group(i)' in Google Sheets."""
+    try:
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(CREDS_DICT, scope)
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SHEET_KEY)
+
+        groups = active_players_df["Group"].unique()
+        for g_val in groups:
+            g_clean = str(g_val).strip()
+            if not g_clean or g_clean == "Unassigned":
+                continue
+            
+            g_num = g_clean.lower().replace(" ", "")
+            tab_name = f"score-{g_num}"
+
+            group_df = active_players_df[active_players_df["Group"] == g_val].fillna(0)
+
+            try:
+                ws = sheet.worksheet(tab_name)
+                ws.clear()
+            except gspread.exceptions.WorksheetNotFound:
+                ws = sheet.add_worksheet(title=tab_name, rows="30", cols="30")
+
+            ws.update([group_df.columns.values.tolist()] + group_df.values.tolist())
+        return True, "Group scores updated on Google Sheets!"
+    except Exception as e:
+        return False, str(e)
+
+def load_all_group_scores_from_sheets(SHEET_KEY, max_groups=4):
+    """Reads all 'score-group(i)' tabs from Google Sheets into a single DataFrame."""
+    try:
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(CREDS_DICT, scope)
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SHEET_KEY)
+
+        merged_rows = []
+        for g in range(1, max_groups + 1):
+            tab_name = f"score-group{g}"
+            try:
+                ws = sheet.worksheet(tab_name)
+                raw = ws.get_all_values()
+                if raw and len(raw) > 1:
+                    headers = [h.strip() for h in raw[0]]
+                    for row in raw[1:]:
+                        if any(row):
+                            row_dict = {headers[i]: row[i] for i in range(min(len(headers), len(row)))}
+                            merged_rows.append(row_dict)
+            except gspread.exceptions.WorksheetNotFound:
+                continue
+                
+        if merged_rows:
+            return pd.DataFrame(merged_rows)
+        return None
+    except Exception:
+        return None
+
+def delete_all_scorecard_and_group_tabs(SHEET_KEY):
+    """Deletes all tabs starting with 'Scorecard-' or 'score-group' from Google Sheets."""
+    try:
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(CREDS_DICT, scope)
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SHEET_KEY)
+
+        worksheets = sheet.worksheets()
+        deleted_tabs = []
+        for ws in worksheets:
+            t_lower = ws.title.lower().strip()
+            if t_lower.startswith("scorecard-") or t_lower.startswith("score-group"):
+                sheet.del_worksheet(ws)
+                deleted_tabs.append(ws.title)
+        return True, deleted_tabs
+    except Exception as e:
+        return False, str(e)
 
 # Load settings into session state on app init
 if "settings_loaded" not in st.session_state:
@@ -243,7 +345,6 @@ available_courses = get_available_courses(SHEET_KEY)
 active_holes = []
 
 if available_courses:
-    # Set default course index from saved settings if available
     course_default_idx = 0
     if "saved_course" in st.session_state and st.session_state.saved_course in available_courses:
         course_default_idx = available_courses.index(st.session_state.saved_course)
@@ -259,7 +360,6 @@ if available_courses:
     if max_holes > 0:
         holes_options = list(range(1, max_holes + 1))
         
-        # Set default hole index from saved settings if available
         default_hole_idx = min(9, max_holes - 1)
         if "saved_num_holes" in st.session_state and st.session_state.saved_num_holes in holes_options:
             default_hole_idx = holes_options.index(st.session_state.saved_num_holes)
@@ -331,7 +431,7 @@ st.sidebar.metric("Skin payout / Hole", f"${skin_value_per_hole:,.2f}")
 
 # --- SAVE & UPDATE SETTINGS BUTTONS ---
 st.sidebar.markdown("---")
-st.sidebar.header("💾 Save Game Settings")
+st.sidebar.header("💾 Settings Persistence")
 col_s1, col_s2 = st.sidebar.columns(2)
 
 with col_s1:
@@ -458,6 +558,15 @@ if not edited_roster_matrix.equals(roster_slice):
     master_db.to_csv(DB_FILE, index=False)
     st.rerun()
 
+# --- CREATE SCORECARD BUTTON ---
+if st.button("📋 Create Scorecard", key="btn_create_scorecard"):
+    with st.spinner("Creating Scorecard tab in Google Sheets..."):
+        ok, result_info = create_scorecard_tab(SHEET_KEY, active_players_df)
+        if ok:
+            st.success(f"✅ Successfully created tab `{result_info}` in Google Sheets!")
+        else:
+            st.error(f"❌ Failed to create Scorecard tab: {result_info}")
+
 # ---------------------------------------------------------
 # --- 3. DYNAMIC SCORE ENTRY FORM ---
 # ---------------------------------------------------------
@@ -540,7 +649,15 @@ else:
                 if p_name in input_scores:
                     master_db.at[idx, selected_hole] = input_scores[p_name]
             master_db.to_csv(DB_FILE, index=False)
-            st.success(f"Scores saved successfully for {selected_hole}!")
+
+            # Update active dataframe & write group score tabs in Google Sheets
+            updated_active = master_db.iloc[:num_players].copy()
+            sheet_ok, sheet_msg = save_group_scores_to_sheet(SHEET_KEY, updated_active)
+
+            if sheet_ok:
+                st.success(f"Scores saved locally & synced to Google Sheets for {selected_hole}!")
+            else:
+                st.warning(f"Saved locally, but Google Sheets update encountered an issue: {sheet_msg}")
             st.rerun()
     else:
         st.error("No active holes found in your course configurations matrix.")
@@ -566,6 +683,46 @@ with col_header:
 
 with col_btn:
     if st.button("🔄 Refresh Results", use_container_width=True):
+        st.cache_data.clear()
+        
+        # 1. Reload settings from 'Settings' tab
+        saved_settings = load_game_settings(SHEET_KEY)
+        if saved_settings:
+            if "num_players" in saved_settings:
+                st.session_state.num_players = int(saved_settings["num_players"])
+            if "buy_in_per_player" in saved_settings:
+                st.session_state.buy_in_per_player = int(saved_settings["buy_in_per_player"])
+            if "carry_over" in saved_settings:
+                st.session_state.carry_over = str(saved_settings["carry_over"]).lower() == 'true'
+            if "saved_course" in saved_settings:
+                st.session_state.saved_course = str(saved_settings["saved_course"])
+            if "saved_num_holes" in saved_settings:
+                st.session_state.saved_num_holes = int(saved_settings["saved_num_holes"])
+
+        # 2. Reload players & group scores from 'score-group1..4' tabs
+        sheets_scores_df = load_all_group_scores_from_sheets(SHEET_KEY, MAX_GROUPS)
+        if sheets_scores_df is not None and not sheets_scores_df.empty:
+            for _, row in sheets_scores_df.iterrows():
+                p_name = row.get("Player", "")
+                if not p_name:
+                    continue
+                
+                # Find matching player in master_db or insert
+                match_idx = master_db[master_db["Player"] == p_name].index
+                if len(match_idx) > 0:
+                    idx = match_idx[0]
+                else:
+                    idx = len(master_db)
+                    master_db.loc[idx] = 0
+                    master_db.at[idx, "Player"] = p_name
+
+                for col in sheets_scores_df.columns:
+                    if col in master_db.columns:
+                        master_db.at[idx, col] = row[col]
+            
+            master_db.to_csv(DB_FILE, index=False)
+
+        st.success("Re-synced game settings, roster, and group scores from Google Sheets!")
         st.rerun()
 
 tab_titles = ["🏆 Master Cash Leaderboard", "🎯 Field Skin Breakdown", "🔢 Player Net Scores Matrix"]
@@ -681,14 +838,12 @@ if st.sidebar.button("📤 Export & Backup to Google Sheet", use_container_width
 
             date_tab_name = f"Backup_{datetime.datetime.now().strftime('%d%b%Y')}"
             
-            # Create tab if it doesn't exist, or select it if it does
             try:
                 backup_ws = sheet.worksheet(date_tab_name)
                 backup_ws.clear()
             except gspread.exceptions.WorksheetNotFound:
                 backup_ws = sheet.add_worksheet(title=date_tab_name, rows="100", cols="30")
 
-            # Push dataframe rows directly into the backup worksheet
             df_export = master_db.fillna("")
             backup_ws.update([df_export.columns.values.tolist()] + df_export.values.tolist())
 
@@ -696,7 +851,19 @@ if st.sidebar.button("📤 Export & Backup to Google Sheet", use_container_width
         except Exception as e:
             st.sidebar.error(f"❌ Sheet backup failed: {e}")
 
+# Action 2: Reset Local DB and Purge Scorecard/Group Tabs in Google Sheets
 if st.sidebar.button("🚨 Reset Database File", use_container_width=True, type="primary", key="admin_factory_reset_btn"):
-    initialize_flat_file()
-    st.sidebar.success("Database cleanly wiped back to default blanks!")
-    st.rerun()
+    with st.spinner("Wiping local database and deleting Google Sheet scorecard tabs..."):
+        initialize_flat_file()
+        ok, deleted_tabs = delete_all_scorecard_and_group_tabs(SHEET_KEY)
+        
+        st.cache_data.clear()
+        
+        if ok:
+            if deleted_tabs:
+                st.sidebar.success(f"Database cleanly wiped! Deleted tabs: {', '.join(deleted_tabs)}")
+            else:
+                st.sidebar.success("Database cleanly wiped! No scorecard tabs needed deletion.")
+        else:
+            st.sidebar.warning(f"Local database reset, but Google Sheets tab deletion failed: {deleted_tabs}")
+        st.rerun()
