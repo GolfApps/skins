@@ -571,7 +571,7 @@ if st.button("📋 Create Scorecard", key="btn_create_scorecard"):
 # --- 3. DYNAMIC SCORE ENTRY FORM ---
 # ---------------------------------------------------------
 
-st.header("📝 Player Scorecard & Entry")
+st.header("📝 Player Score Entry")
 
 # Group Selector placed directly ABOVE the Hole Selector
 group_options = ["All Players"] + [f"Group {g+1}" for g in range(MAX_GROUPS)]
