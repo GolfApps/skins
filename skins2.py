@@ -685,7 +685,7 @@ with col_btn:
     if st.button("🔄 Refresh Results", use_container_width=True):
         st.cache_data.clear()
         
-        # 1. Reload settings from 'Settings' tab
+        # Reload settings from 'Settings' tab
         saved_settings = load_game_settings(SHEET_KEY)
         if saved_settings:
             if "num_players" in saved_settings:
@@ -699,7 +699,7 @@ with col_btn:
             if "saved_num_holes" in saved_settings:
                 st.session_state.saved_num_holes = int(saved_settings["saved_num_holes"])
 
-        # 2. Reload players & group scores from 'score-group1..4' tabs
+        # Reload players & group scores from 'score-group1..4' tabs
         sheets_scores_df = load_all_group_scores_from_sheets(SHEET_KEY, MAX_GROUPS)
         if sheets_scores_df is not None and not sheets_scores_df.empty:
             for _, row in sheets_scores_df.iterrows():
@@ -707,7 +707,6 @@ with col_btn:
                 if not p_name:
                     continue
                 
-                # Find matching player in master_db or insert
                 match_idx = master_db[master_db["Player"] == p_name].index
                 if len(match_idx) > 0:
                     idx = match_idx[0]
@@ -734,12 +733,16 @@ hole_results = []
 current_pot_multiplier = 1
 net_matrix_rows = []
 
+total_active_players = len(active_players_df)
+
 for h in range(num_holes):
     hole_col = f"Hole {h+1}"
     hole_hdcp = hole_hdcp_values[h] if h < len(hole_hdcp_values) else 10
     current_hole_value = skin_value_per_hole * current_pot_multiplier
     
     net_scores_map = {}
+    valid_scores_count = 0
+    
     for idx, row in active_players_df.iterrows():
         player_name = row["Player"]
         gross = row.get(hole_col, 0)
@@ -753,42 +756,63 @@ for h in range(num_holes):
             
         if gross_val > 0:
             net_scores_map[player_name] = max(1, gross_val - strokes_allowed)
+            valid_scores_count += 1
         else:
             net_scores_map[player_name] = 0
 
-    played_net_scores = {p: score for p, score in net_scores_map.items() if score > 0}
-    
-    if not played_net_scores:
+    # REQUIRE ALL ACTIVE PLAYERS TO HAVE A SCORE LOGGED (> 0) BEFORE EVALUATING
+    if valid_scores_count < total_active_players:
         hole_results.append({
-            "Hole": hole_col, "Par/HDCP": f"P:{par_values[h] if h < len(par_values) else 4} | H:{hole_hdcp}", "Net Winner": "-", "Group": "-", "Winning Net": "-", 
-            "Status": "Unplayed", "Hole Value": f"${current_hole_value:,.2f}"
+            "Hole": hole_col, 
+            "Par/HDCP": f"P:{par_values[h] if h < len(par_values) else 4} | H:{hole_hdcp}", 
+            "Net Winner": "-", 
+            "Group": "-", 
+            "Winning Net": "-", 
+            "Status": f"Incomplete ({valid_scores_count}/{total_active_players} Played)", 
+            "Hole Value": f"${current_hole_value:,.2f}"
         })
-        if not carry_over: current_pot_multiplier = 1
+        # Pot value carries forward without resetting until the hole is completely played by all
         continue
         
-    min_net = min(played_net_scores.values())
-    players_with_min = [p for p, score in played_net_scores.items() if score == min_net]
+    # All players have completed the hole — Evaluate skin winner
+    min_net = min(net_scores_map.values())
+    players_with_min = [p for p, score in net_scores_map.items() if score == min_net]
     
     if len(players_with_min) == 1:
         winner = players_with_min[0]
         player_cash_won[winner] += current_hole_value
         hole_results.append({
-            "Hole": hole_col, "Par/HDCP": f"P:{par_values[h] if h < len(par_values) else 4} | H:{hole_hdcp}", "Net Winner": winner, "Group": player_groups.get(winner, "-"), "Winning Net": int(min_net), 
-            "Status": "🔥 Skin Won!", "Hole Value": f"${current_hole_value:,.2f}"
+            "Hole": hole_col, 
+            "Par/HDCP": f"P:{par_values[h] if h < len(par_values) else 4} | H:{hole_hdcp}", 
+            "Net Winner": winner, 
+            "Group": player_groups.get(winner, "-"), 
+            "Winning Net": int(min_net), 
+            "Status": "🔥 Skin Won!", 
+            "Hole Value": f"${current_hole_value:,.2f}"
         })
         current_pot_multiplier = 1
     else:
         tie_names = ", ".join([p.split()[0] for p in players_with_min])
         if carry_over:
             hole_results.append({
-                "Hole": hole_col, "Par/HDCP": f"P:{par_values[h] if h < len(par_values) else 4} | H:{hole_hdcp}", "Net Winner": "-", "Group": "-", "Winning Net": int(min_net), 
-                "Status": f"Tied ({tie_names}) - Carried", "Hole Value": f"${current_hole_value:,.2f}"
+                "Hole": hole_col, 
+                "Par/HDCP": f"P:{par_values[h] if h < len(par_values) else 4} | H:{hole_hdcp}", 
+                "Net Winner": "-", 
+                "Group": "-", 
+                "Winning Net": int(min_net), 
+                "Status": f"Tied ({tie_names}) - Carried", 
+                "Hole Value": f"${current_hole_value:,.2f}"
             })
             current_pot_multiplier += 1
         else:
             hole_results.append({
-                "Hole": hole_col, "Par/HDCP": f"P:{par_values[h] if h < len(par_values) else 4} | H:{hole_hdcp}", "Net Winner": "-", "Group": "-", "Winning Net": int(min_net), 
-                "Status": f"Tied ({tie_names}) - Expired", "Hole Value": f"${current_hole_value:,.2f}"
+                "Hole": hole_col, 
+                "Par/HDCP": f"P:{par_values[h] if h < len(par_values) else 4} | H:{hole_hdcp}", 
+                "Net Winner": "-", 
+                "Group": "-", 
+                "Winning Net": int(min_net), 
+                "Status": f"Tied ({tie_names}) - Expired", 
+                "Hole Value": f"${current_hole_value:,.2f}"
             })
             current_pot_multiplier = 1
 
